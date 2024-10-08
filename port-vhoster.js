@@ -1,15 +1,10 @@
-/*
-* port-vhoster
-* https://github.com/kyr0/port-vhoster
-*
-* Copyright(c) 2012, 2013 Aron Homberg
-* Licensed under the MIT license.
-*/
-module.exports = (function() {
-    "use strict";
-
-    var httpProxy = require('http-proxy'), argv = require('optimist').argv,
-        configFileName = 'port-vhoster.json', routingConfig = {}, proxyServer;
+import httpProxy from 'http-proxy';
+import {argv} from 'optimist';
+export default (() => {
+   
+    let configFileName = 'port-vhoster.json';
+    let routingConfig = {};
+    let proxyServer;
 
 
     // Use different config file if named
@@ -52,12 +47,12 @@ module.exports = (function() {
 
     return {
 
-        cli: function() {
+        cli() {
 
             // Get the current directory
-            var cwd = process.cwd();
+            const cwd = process.cwd();
             console.log("Current working directory: ", cwd);
-            console.log("Arguments given: " + process.argv.slice(2));
+            console.log(`Arguments given: ${process.argv.slice(2)}`);
         }
-    }
+    };
 })();
