@@ -1,32 +1,53 @@
 {
   "name": "port-vhoster",
-  "version": "0.1.16",
-  "description": "A simple HTTP vhost reverse proxy / port sharing implementation for node.js. Run multiple node HTTP servers (Domains, IP's) through one port.",
+  "version": "1.0.0",
+  "description": "A small, dependency-free HTTP vhost reverse proxy / port sharing tool for Node.js. Run multiple HTTP servers (domains, IPs, paths) behind one port.",
   "author": "Aron Homberg <info@aron-homberg.de>",
+  "license": "MIT",
+  "type": "module",
   "repository": {
     "type": "git",
-    "url": "http://github.com/kyr0/port-vhoster.git"
+    "url": "git+https://github.com/elliotberry/port-vhoster.git"
   },
-  "homepage":"http://github.com/kyr0/port-vhoster/",
+  "homepage": "https://github.com/elliotberry/port-vhoster#readme",
+  "bugs": {
+    "url": "https://github.com/elliotberry/port-vhoster/issues"
+  },
   "keywords": [
-    "multi",
     "vhost",
-    "port",
-    "reverse",
+    "virtual-host",
+    "reverse-proxy",
     "proxy",
+    "port-sharing",
     "http"
   ],
-  "dependencies": {
-    "optimist": "0.6.x",
-    "http-proxy": "1.18.x"
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
   },
   "bin": {
     "port-vhoster": "bin/port-vhoster.js"
   },
-  "main": "lib/port-vhoster",
-  "license" : "MIT",
+  "files": [
+    "bin",
+    "src",
+    "examples"
+  ],
+  "scripts": {
+    "start": "node bin/port-vhoster.js",
+    "test": "node --test \"test/**/*.test.js\"",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
   "engines": {
-    "node": ">= 0.8.*"
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0",
+    "prettier": "^3.3.0"
   }
 }
-

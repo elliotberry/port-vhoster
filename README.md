@@ -1,95 +1,142 @@
-port-vhoster
-==========
+# port-vhoster
 
-A simple HTTP vhost reverse proxy / port sharing implementation for node.js. Run multiple node HTTP servers (Domains, IP's) through one port.
+A small, dependency-free HTTP reverse proxy for sharing one port between several HTTP servers. Requests are routed by `Host` header and, optionally, by path prefix, with simple prefix rewriting.
 
-This project implements a simple HTTP multi domain name / IP / directory HTTP reverse proxy for virtual hosting / port sharing.
-It simply does what a reverse proxy does combined with some mod_rewrite feature support.
+- No runtime dependencies (built on `node:http`)
+- WebSocket upgrade support
+- Strict config validation (typos and unsafe values fail at startup)
+- Hardened request handling (see [Security](#security))
 
-This project also shows the power of node.js by being implemented in less than 100 lines of code.
+> **Status:** small and tested, but not battle-tested under high load. Put it behind a TLS terminator and evaluate it for your use case before relying on it in production.
 
-PERFORMANCE NOTICE:
-This code has NOT been tested in production / high load environments.
-So be warned and evaluate it on your own before using it in production. Feedback is welcome!
-(It SHOULD be NOT LESS faster than the http-proxy module implementation.)
+## Requirements
 
-## Prerequisites
+Node.js 20 or newer.
 
-Make sure:
-- node.js is installed (>= 0.8.*)
-- npm is installed
+## Install
 
-## Installing
-
+```sh
+npm install -g port-vhoster
 ```
 
-    [sudo] npm install -g port-vhoster
+## Usage
 
+```sh
+port-vhoster [options] [config-file]
 ```
 
-## Configuring
+| Option            | Description                                       |
+| ----------------- | ------------------------------------------------- |
+| `config-file`     | JSON config file (default: `./port-vhoster.json`) |
+| `-c`, `--check`   | Validate the config and exit (non-zero on error)  |
+| `-h`, `--help`    | Show help                                         |
+| `-v`, `--version` | Show version                                      |
 
-A valid configuration file for port-vhoster is written in JSON notation as a single object that should provide
-three key/value pairs:
+Binding to a port below 1024 (such as 80) needs elevated privileges. Prefer granting the capability to the process (see the systemd example) over running as root.
 
-- description (String) = Description, printed to the terminal on startup.
-- port        (Number) = Source port (share port) to listen to (e.g. 80).
-- vhosts      (Object) = Key ($ip OR $domain/port) / value (target $ip:$port/$path)-pairs of vhost-configurations.
+`SIGINT` and `SIGTERM` trigger a graceful shutdown.
 
-## Configuration example
+## Configuration
 
-The following configuration is a simple routing example. You can add more vhosts to the config object too:
+A config file is a single JSON object. Unknown keys are rejected.
 
+| Key                | Type    | Default   | Description                                                              |
+| ------------------ | ------- | --------- | ------------------------------------------------------------------------ |
+| `description`      | string  | -         | Printed on startup.                                                      |
+| `port`             | number  | required  | Port to listen on (`0` picks a free port).                               |
+| `vhosts`           | object  | required  | Routes: `"host[:port][/path]"` to `"ip:port[/path]"`.                    |
+| `host`             | string  | `0.0.0.0` | Interface to bind. Use `127.0.0.1` to listen on loopback only.           |
+| `trustProxy`       | boolean | `false`   | Trust incoming `X-Forwarded-*` headers (only if behind another proxy).   |
+| `proxyTimeout`     | number  | `60000`   | Milliseconds of upstream inactivity before answering `504`.              |
+| `headersTimeout`   | number  | `30000`   | Milliseconds a client may take to send request headers.                  |
+| `requestTimeout`   | number  | `300000`  | Milliseconds a client may take to send the whole request (`0` disables). |
+| `keepAliveTimeout` | number  | `5000`    | Milliseconds an idle client keep-alive connection is held open.          |
+| `maxHeaderSize`    | number  | `16384`   | Maximum size of request headers in bytes.                                |
+
+### Routing rules
+
+- Hosts are matched case-insensitively. A key without a port (`example.com`) matches any port in the `Host` header. A key with a port (`example.com:8443`) matches that exact `Host` value and is tried first.
+- Within a host, the **longest matching path prefix wins**. Prefixes match whole path segments: `/downloads` matches `/downloads` and `/downloads/a.zip` but not `/downloads-old`.
+- The matched prefix is replaced by the target's path: with `"example.com/uploads": "10.0.0.2:8080/master/golive/upload"`, a request for `/uploads/a.png?x=1` is sent to `10.0.0.2:8080/master/golive/upload/a.png?x=1`.
+- Requests that match no vhost get `404`. Upstream failures give `502` (or `504` on timeout).
+- The original `Host` header is passed on to the upstream server.
+
+### Example
+
+```json
+{
+  "description": "Routing with port sharing on port 80 for some domains and paths",
+  "port": 80,
+  "vhosts": {
+    "www.example.com": "127.0.0.1:8081",
+    "example.com": "127.0.0.1:8081",
+    "example.com/downloads": "10.0.0.1:8080",
+    "example.com/uploads": "10.0.0.2:8080/master/golive/upload"
+  }
+}
 ```
 
-    {
-        "description": "Routing with port sharing on port 80 (HTTP) for some domains and paths...",
-        "port": 80,
-        "vhosts": {
-            "www.aron-homberg.de": "127.0.0.1:8081",
-            "aron-homberg.de": "127.0.0.1:8081",
-            "example.com/downloads": "10.0.0.1:8080",
-            "example.com/uploads": "10.0.0.2:8080/master/golive/upload"
-        }
-    }
+See [examples](examples) for more.
 
+## Programmatic use
+
+```js
+import { createVhoster } from 'port-vhoster';
+
+const vhoster = createVhoster({
+  port: 8080,
+  host: '127.0.0.1',
+  vhosts: { 'app.localhost': '127.0.0.1:3000' },
+});
+
+await vhoster.listen();
+// ...
+await vhoster.close();
 ```
 
-Take a look at the [examples](https://github.com/kyr0/port-vhoster/tree/master/examples) directory for more inspiration.
+`createVhoster(config, { logger })` validates the config and throws a `ConfigError` on problems.
 
-## Running
+## Security
 
-By default, ```port-vhoster``` searches for a config file called ```port-vhoster.json``` in current working directory.
-If you want to use a different name, run ```port-vhoster``` with the optional argument to name the config file:
+- **Path handling:** requests containing `.` or `..` segments (including percent-encoded forms), backslashes, NUL bytes, malformed percent-encoding, or an absolute-URI request target are rejected with `400`, so the proxy and upstream cannot disagree about which route applies.
+- **Forwarding headers:** hop-by-hop headers (and any named in `Connection`) are stripped in both directions. `X-Forwarded-For/Host/Proto` are set from the actual connection and any client-supplied values are discarded unless `trustProxy` is `true`.
+- **Config:** unknown options, duplicate vhosts, `__proto__`/`constructor`/`prototype` keys, and malformed hosts, ports, or paths are rejected at startup. Targets that use a hostname instead of an IP produce a warning, since they are re-resolved by DNS on every new connection.
+- **Resource limits:** header size and header/request/keep-alive/upstream timeouts are bounded. Malformed requests get a plain `400`; error bodies never include upstream details.
+- **No TLS:** this proxy speaks plain HTTP. Terminate TLS in front of it (for example with a cloud load balancer or Caddy/nginx) and set `trustProxy` accordingly. Do not expose upstream services that rely on the proxy for authentication unless you have secured the network path.
+- **Only route to servers you control.** Targets come from the config file only, never from requests.
 
+## Running as a service
+
+systemd unit (`/etc/systemd/system/port-vhoster.service`):
+
+```ini
+[Unit]
+Description=port-vhoster
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/env port-vhoster /etc/port-vhoster.json
+Restart=on-failure
+DynamicUser=yes
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-    [sudo] port-vhoster [$alternative-config-file.json]
+## Development
 
+```sh
+npm install
+npm test
+npm run lint
 ```
 
-You may need super-user permissions if you want ```port-vhoster``` to listen to a port below 1024 (e.g. port 80).
+## License
 
-## Logging and running in stand-alone mode
-
-If you're on a Unix/Linux/Mac OS X system you can run port-vhoster in server mode easily:
-
-Starting (e.g. ```start-vhoster.sh``` - don't forget to: ```chmod +x start-vhoster.sh```!):
-
-```
-    #!/bin/sh
-    echo "Starting port-vhoster..."
-    nohup port-vhoster > port-vhoster.out 2> port-vhoster.err < /dev/null &
-
-```
-
-Stopping (e.g. ```stop-vhoster.sh``` - don't forget to: ```chmod +x stop-vhoster.sh```!):
-
-```
-    #!/bin/sh
-    echo "Stopping port-vhoster..."
-    kill $(ps aux | grep '[p]ort-vhoster' | awk '{print $2}')
-
-```
-
-For sure, server mode and logging may also be possible on Microsoft Windows platform but that's currently untested.
+MIT
